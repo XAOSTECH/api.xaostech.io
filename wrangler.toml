@@ -2,10 +2,6 @@ name = "xaostech-api"
 compatibility_date = "2025-12-31"
 main = "src/index.ts"
 
-[[d1_databases]]
-binding = "DB"
-database_name = "api-db"
-
 [vars]
 ENABLE_RATE_LIMIT = "true"
 RATE_LIMIT_REQUESTS = "100"
@@ -17,4 +13,3 @@ routes = [{ pattern = "api.xaostech.io/*", zone_name = "xaostech.io" }]
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "api-db"
-database_id = ""

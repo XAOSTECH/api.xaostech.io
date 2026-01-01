@@ -70,21 +70,28 @@
 
 ## 🔍 Overview
 
-API worker
+Business logic API layer:
+- Task management (CRUD)
+- User-scoped operations
+- Rate limiting & auth checks
+- Integration with account.xaostech.io for user verification
 
 ### Why api.xaostech.io?
 
-{{WHY_PROJECT}}
+Separates **business operations** from identity (account) and data (data worker). Handles:
+- Task workflows
+- Permission checks (via session tokens)
+- Rate limiting
 
 ---
 
 ## ✨ Features
 
-- 🚀 **Feature 1** - Description of feature 1
-- 🔧 **Feature 2** - Description of feature 2
-- 📦 **Feature 3** - Description of feature 3
-- 🔒 **Feature 4** - Description of feature 4
-- ⚡ **Feature 5** - Description of feature 5
+- 📋 **Task Management** - CRUD with user scoping
+- 🔐 **Auth Checks** - Validates session tokens
+- ⚡ **Rate Limiting** - Per-user request quotas
+- 📊 **Structured Responses** - Consistent API format
+- 🔒 **Zero-Trust** - Session required for all operations
 
 ---
 
@@ -92,12 +99,25 @@ API worker
 
 ### Prerequisites
 
-- {{PREREQUISITE_1}}
-- {{PREREQUISITE_2}}
-- {{PREREQUISITE_3}}
+- Node.js 18+
+- Cloudflare account with Workers
+- D1 database
 
 ### Quick Start
 
+```bash
+# Clone the repository
+git clone https://github.com/XAOSTECH/api.xaostech.io.git
+cd api.xaostech.io
+
+# Install dependencies
+npm install
+
+# Local development
+npm run dev
+
+# Deploy to production
+npm run deploy
 ```bash
 # Clone the repository
 git clone https://github.com/XAOSTECH/api.xaostech.io.git
