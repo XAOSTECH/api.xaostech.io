@@ -16,6 +16,10 @@ binding = "DB"
 database_name = "api-db"
 database_id = "${D1_API_DB_ID}"
 
+[[env.production.r2_buckets]]
+binding = "IMG"
+bucket_name = "img"
+
 [env.testing]
 routes = [{ pattern = "api.testing.local/*", zone_name = "localhost" }]
 
