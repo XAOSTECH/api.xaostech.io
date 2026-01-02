@@ -4,6 +4,8 @@ main = "src/index.ts"
 send_metrics = false
 
 [env.production]
+name = "xaostech-api"
+main = "src/index.ts"
 routes = [{ pattern = "api.xaostech.io/*", zone_name = "xaostech.io" }]
 
 [env.production.vars]
@@ -15,6 +17,10 @@ RATE_LIMIT_WINDOW = "60000"
 binding = "DB"
 database_name = "api-db"
 database_id = "${D1_API_DB_ID}"
+
+[[env.production.r2_buckets]]
+binding = "IMG"
+bucket_name = "img"
 
 [env.testing]
 routes = [{ pattern = "api.testing.local/*", zone_name = "localhost" }]
