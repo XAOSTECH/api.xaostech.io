@@ -4,6 +4,7 @@ main = "src/index.ts"
 send_metrics = false
 
 [env.production]
+name = "xaostech-api"
 routes = [{ pattern = "api.xaostech.io/*", zone_name = "xaostech.io" }]
 
 [env.production.vars]
