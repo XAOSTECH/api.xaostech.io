@@ -12,18 +12,23 @@ routes = [{ pattern = "api.xaostech.io/*", zone_name = "xaostech.io" }]
 ENABLE_RATE_LIMIT = "true"
 RATE_LIMIT_REQUESTS = "100"
 RATE_LIMIT_WINDOW = "60000"
+ENABLE_WEBSOCKET = "true"
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "api-db"
 database_id = "${D1_API_DB_ID}"
 
-[[env.production.r2_buckets]]
-binding = "IMG"
-bucket_name = "img"
+[[env.production.kv_namespaces]]
+binding = "MESSAGES_KV"
+id = "${KV_MESSAGES_ID}"
 
-[env.testing]
-routes = [{ pattern = "api.testing.local/*", zone_name = "localhost" }]
+[[env.production.kv_namespaces]]
+binding = "SESSION"
+id = "${KV_SESSIONS_ID}"
+
+[env.production.ai]
+binding = "AI"
 
 [[env.testing.d1_databases]]
 binding = "DB"
