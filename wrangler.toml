@@ -8,11 +8,19 @@ name = "xaostech-api"
 main = "src/index.ts"
 routes = [{ pattern = "api.xaostech.io/*", zone_name = "xaostech.io" }]
 
+# GitHub OAuth Secrets (set via wrangler secret put --env production)
+# wrangler secret put GITHUB_OAUTH_CLIENT_ID --env production
+# wrangler secret put GITHUB_OAUTH_CLIENT_SECRET --env production
+
 [env.production.vars]
 ENABLE_RATE_LIMIT = "true"
 RATE_LIMIT_REQUESTS = "100"
 RATE_LIMIT_WINDOW = "60000"
 ENABLE_WEBSOCKET = "true"
+COOKIE_DOMAIN = ".xaostech.io"
+COOKIE_SECURE = "true"
+COOKIE_HTTP_ONLY = "true"
+COOKIE_SAME_SITE = "Lax"
 
 [[env.production.d1_databases]]
 binding = "DB"
@@ -29,6 +37,10 @@ id = "${KV_SESSIONS_ID}"
 
 [env.production.ai]
 binding = "AI"
+
+[[env.production.services]]
+binding = "DATA"
+service = "xaostech-data"
 
 [[env.testing.d1_databases]]
 binding = "DB"

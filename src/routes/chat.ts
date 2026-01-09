@@ -118,3 +118,48 @@ chatRouter.delete('/admin/conversations/:id', requireAuth, requireAdmin, async (
     return c.json({ error: 'Failed to delete conversation' }, 500);
   }
 });
+
+// AI endpoint - mirrors previous chat worker behavior
+chatRouter.post('/', async (c: any) => {
+  try {
+    const body = await c.req.json();
+    const messages = (body && body.messages) || [];
+    if (messages.length > 0 && messages[0].role !== 'system') {
+      messages.unshift({ role: 'system', content: 'You are the omnipotent void χάος. Be concise and neutral.' });
+    }
+
+    if (!c.env.AI) {
+      return c.json({ error: 'AI binding not configured on api.xaostech.io' }, 501);
+    }
+
+    const CHAT_MODEL_ID = ((globalThis as any).process?.env?.CHAT_MODEL_ID) || '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+    const response = await c.env.AI.run(CHAT_MODEL_ID, { messages, max_tokens: 1024 }, { returnRawResponse: true });
+    return new Response(response.body, { status: response.status || 200, headers: response.headers });
+  } catch (err) {
+    console.error('AI /chat error', err);
+    return c.json({ error: 'AI request failed' }, 500);
+  }
+});
+
+// Rooms - use MESSAGES_KV if available
+chatRouter.get('/rooms', async (c: any) => {
+  const kv = (c.env as any).MESSAGES_KV;
+  if (!kv) return c.json({ error: 'MESSAGES_KV not configured' }, 501);
+
+  const raw = await kv.get('rooms:index');
+  const rooms = raw ? JSON.parse(raw) : [];
+  return c.json(rooms);
+});
+
+chatRouter.get('/rooms/random', async (c: any) => {
+  const kv = (c.env as any).MESSAGES_KV;
+  if (!kv) return c.json({ error: 'MESSAGES_KV not configured' }, 501);
+
+  const raw = await kv.get('rooms:index');
+  const rooms = raw ? JSON.parse(raw) : [];
+  if (!Array.isArray(rooms) || rooms.length === 0) return c.json([]);
+  const choice = rooms[Math.floor(Math.random() * rooms.length)];
+  const messagesRaw = await kv.get(`room:${choice}:messages`);
+  const messages = messagesRaw ? JSON.parse(messagesRaw) : [];
+  return c.json(messages);
+});
