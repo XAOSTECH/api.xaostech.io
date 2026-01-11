@@ -9,22 +9,20 @@ import { accountRouter } from './routes/account';
 import { blogRouter } from './routes/blog';
 import { dataRouter } from './routes/data';
 
-import { getSecurityHeaders, applySecurityHeaders } from '../shared/types/security';
+import { applySecurityHeaders, CSP_STRICT, CSP_RELAXED } from '../shared/types/security';
 
 const app = new Hono();
 
-// Global security headers middleware - skip for OAuth flows
+// Global security headers middleware - use strict CSP by default, relaxed for auth routes
 app.use('*', async (c: any, next: any) => {
   await next();
   const res = c.res as Response;
   
-  // Skip strict CSP for auth endpoints to allow GitHub OAuth page to load
-  // Auth endpoints handle their own security and don't need restrictive CSP
-  if (c.req.path.startsWith('/auth/github/')) {
-    return res;
-  }
+  // Use relaxed CSP for OAuth endpoints to allow GitHub's resources
+  const isAuthRoute = c.req.path.startsWith('/auth/github/');
+  const cspPolicy = isAuthRoute ? CSP_RELAXED : CSP_STRICT;
   
-  return applySecurityHeaders(res);
+  return applySecurityHeaders(res, cspPolicy);
 });
 
 /**
@@ -476,9 +474,6 @@ app.get('/data/blog-media/:key', async (c: any) => {
 
     const blob = await response.blob();
     const headers = new Headers(response.headers);
-    // Merge global security headers
-    const secBlog = getSecurityHeaders();
-    for (const k in secBlog) headers.set(k, secBlog[k]);
     
     return new Response(blob, {
       status: 200,
@@ -550,11 +545,7 @@ app.get('/favicon.ico', async (c: any) => {
     const headers = new Headers({
       'Content-Type': 'image/png',
       'Cache-Control': 'public, max-age=604800', // 7 days
-      
     });
-    // Merge security headers
-    const secFav = getSecurityHeaders();
-    for (const k in secFav) headers.set(k, secFav[k]);
     console.debug && console.debug(`[FAVICON] Returning favicon, size=${blob.size}`);
     return new Response(blob, {
       status: 200,
