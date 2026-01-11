@@ -13,10 +13,17 @@ import { getSecurityHeaders, applySecurityHeaders } from '../shared/types/securi
 
 const app = new Hono();
 
-// Global security headers middleware
+// Global security headers middleware - skip for OAuth flows
 app.use('*', async (c: any, next: any) => {
   await next();
   const res = c.res as Response;
+  
+  // Skip strict CSP for auth endpoints to allow GitHub OAuth page to load
+  // Auth endpoints handle their own security and don't need restrictive CSP
+  if (c.req.path.startsWith('/auth/github/')) {
+    return res;
+  }
+  
   return applySecurityHeaders(res);
 });
 
