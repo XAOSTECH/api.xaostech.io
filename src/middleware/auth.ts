@@ -29,16 +29,16 @@ export interface AuthContext {
  */
 export async function authMiddleware(c: Context, next: Next) {
   const pathname = c.req.path;
-  
+
   // Public endpoints - skip auth
   // Assets are public, don't require authentication
   if (pathname.startsWith('/data/assets/')) {
     return next();
   }
-  
+
   // Check for API key first (X-API-Key header)
   const apiKey = c.req.header('X-API-Key');
-  
+
   const authHeader = c.req.header('Authorization');
   // getCookie is the correct Hono method for reading cookies
   const cookieSession = c.req.query('session_id') || c.req.header('Cookie')?.split('session_id=')[1]?.split(';')[0];
@@ -57,7 +57,7 @@ export async function authMiddleware(c: Context, next: Next) {
     try {
       const verifyResponse = await fetch('https://account.xaostech.io/verify-api-key', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           // Forward client IP for IP allowlist checking
           'CF-Connecting-IP': c.req.header('CF-Connecting-IP') || '',
@@ -84,7 +84,7 @@ export async function authMiddleware(c: Context, next: Next) {
       console.error('API key verification failed:', err);
       auth.error = 'auth_service_error';
     }
-  } 
+  }
   // Priority 2: Bearer token or session cookie
   else {
     let token = '';

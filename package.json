@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "hono": "latest",
+    "jose": "latest",
     "zod": "latest"
   },
   "devDependencies": {
