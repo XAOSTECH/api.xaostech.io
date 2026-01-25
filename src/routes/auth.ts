@@ -24,8 +24,20 @@ authRouter.get('/github/login', (c: any) => {
   const safeReturnTo = isValidReturnTo(returnTo) ? returnTo : 'https://account.xaostech.io';
 
   const state = crypto.randomUUID();
-  // Build redirect_uri from the request URL (will be account.xaostech.io/api/auth/github/callback when proxied)
-  const redirectUri = new URL('/auth/github/callback', c.req.url).toString();
+  
+  // Build redirect_uri from forwarded headers (when proxied) or request URL (direct)
+  // X-Forwarded-Host tells us the original host (e.g., account.xaostech.io)
+  const forwardedHost = c.req.header('X-Forwarded-Host');
+  const forwardedProto = c.req.header('X-Forwarded-Proto') || 'https';
+  
+  let redirectUri: string;
+  if (forwardedHost) {
+    // Request came through proxy - use original host with /api prefix
+    redirectUri = `${forwardedProto}://${forwardedHost}/api/auth/github/callback`;
+  } else {
+    // Direct request to api.xaostech.io
+    redirectUri = new URL('/auth/github/callback', c.req.url).toString();
+  }
 
   // State cookie for CSRF protection - must be Lax for OAuth redirect to work
   // Also store return_to in state cookie
