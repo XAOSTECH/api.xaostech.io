@@ -110,16 +110,20 @@ authRouter.get('/github/callback', async (c: any) => {
     const db = c.env.DB;
     if (!db) return c.json({ error: 'DB not configured on api.xaostech.io' }, 501);
 
-    const existingRow = await db.prepare('SELECT id FROM users WHERE github_id = ?').bind(ghUser.id.toString()).first();
-    const existing = existingRow as { id?: string } | undefined;
+    const existingRow = await db.prepare('SELECT id, role FROM users WHERE github_id = ?').bind(ghUser.id.toString()).first();
+    const existing = existingRow as { id?: string; role?: string } | undefined;
     let userId = existing?.id;
+    let userRole = existing?.role || 'user';
+    let isNewUser = false;
+
     if (userId) {
       await db.prepare('UPDATE users SET username = ?, email = ?, avatar_url = ?, last_login = datetime("now") WHERE id = ?')
         .bind(ghUser.login || '', primaryEmail || '', ghUser.avatar_url || '', userId).run();
     } else {
       userId = crypto.randomUUID();
-      await db.prepare('INSERT INTO users (id, github_id, username, email, avatar_url, created_at, last_login) VALUES (?, ?, ?, ?, ?, datetime("now"), datetime("now"))')
-        .bind(userId, ghUser.id.toString(), ghUser.login || '', primaryEmail || '', ghUser.avatar_url || '').run();
+      isNewUser = true;
+      await db.prepare('INSERT INTO users (id, github_id, username, email, avatar_url, role, created_at, last_login) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))')
+        .bind(userId, ghUser.id.toString(), ghUser.login || '', primaryEmail || '', ghUser.avatar_url || '', 'user').run();
     }
 
     const sessionKv = c.env.SESSION;
@@ -128,12 +132,16 @@ authRouter.get('/github/callback', async (c: any) => {
     const sessionId = crypto.randomUUID();
     const sessionTtl = 60 * 60 * 24 * 7; // 7 days
     // Store full user data in session for cross-worker access
+    // Note: use both 'id' and 'userId' for backwards compatibility
     const sessionData = {
+      id: userId,
       userId,
       username: ghUser.login || '',
       email: primaryEmail || '',
       avatar_url: ghUser.avatar_url || '',
       github_id: ghUser.id.toString(),
+      role: userRole,
+      isNewUser,
       expires: Date.now() + (sessionTtl * 1000),
     };
     await sessionKv.put(sessionId, JSON.stringify(sessionData), { expirationTtl: sessionTtl });
