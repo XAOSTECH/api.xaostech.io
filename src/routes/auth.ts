@@ -161,7 +161,7 @@ authRouter.get('/github/callback', async (c: any) => {
     });
   } catch (err: any) {
     console.error('GitHub callback error', err);
-    return c.json({ error: 'GitHub OAuth failed' }, 500);
+    return c.json({ error: 'GitHub OAuth failed', message: err?.message || String(err) }, 500);
   }
 });
 
