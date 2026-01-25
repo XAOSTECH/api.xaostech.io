@@ -24,12 +24,12 @@ authRouter.get('/github/login', (c: any) => {
   const safeReturnTo = isValidReturnTo(returnTo) ? returnTo : 'https://account.xaostech.io';
 
   const state = crypto.randomUUID();
-  
+
   // Build redirect_uri from forwarded headers (when proxied) or request URL (direct)
   // X-Forwarded-Host tells us the original host (e.g., account.xaostech.io)
   const forwardedHost = c.req.header('X-Forwarded-Host');
   const forwardedProto = c.req.header('X-Forwarded-Proto') || 'https';
-  
+
   let redirectUri: string;
   if (forwardedHost) {
     // Request came through proxy - use original host with /api prefix
@@ -51,8 +51,8 @@ authRouter.get('/github/login', (c: any) => {
   authUrl.searchParams.set('scope', 'read:user user:email');
   authUrl.searchParams.set('state', state);
 
-  return new Response(null, { 
-    status: 302, 
+  return new Response(null, {
+    status: 302,
     headers: [
       ['Location', authUrl.toString()],
       ['Set-Cookie', stateCookie],
@@ -75,15 +75,25 @@ authRouter.get('/github/callback', async (c: any) => {
   const cookieState = cookieMatch ? cookieMatch[1] : null;
   if (!cookieState || cookieState !== state) return c.json({ error: 'Invalid state (possible CSRF)' }, 400);
 
+  // Reconstruct redirect_uri the same way login did (must match for token exchange)
+  const forwardedHost = c.req.header('X-Forwarded-Host');
+  const forwardedProto = c.req.header('X-Forwarded-Proto') || 'https';
+  let redirectUri: string;
+  if (forwardedHost) {
+    redirectUri = `${forwardedProto}://${forwardedHost}/api/auth/github/callback`;
+  } else {
+    redirectUri = new URL('/auth/github/callback', c.req.url).toString();
+  }
+
   try {
     const tokenResp = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code }),
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirectUri }),
     });
-    const tokenJson = await tokenResp.json();
+    const tokenJson: any = await tokenResp.json();
     const accessToken = tokenJson.access_token;
-    if (!accessToken) return c.json({ error: 'Failed to obtain access token' }, 502);
+    if (!accessToken) return c.json({ error: 'Failed to obtain access token', details: tokenJson.error_description || tokenJson.error }, 502);
 
     const userResp = await fetch('https://api.github.com/user', { headers: { Authorization: `token ${accessToken}`, 'User-Agent': 'xaostech' } });
     if (!userResp.ok) return c.json({ error: 'Failed to fetch GitHub user' }, 502);
@@ -141,8 +151,8 @@ authRouter.get('/github/callback', async (c: any) => {
     // Clear the return_to cookie
     const clearReturnCookie = `gh_return_to=; Domain=${cookieDomain}; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
 
-    return new Response(null, { 
-      status: 302, 
+    return new Response(null, {
+      status: 302,
       headers: [
         ['Location', safeReturnTo],
         ['Set-Cookie', sessionCookie],
