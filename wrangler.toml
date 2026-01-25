@@ -25,11 +25,6 @@ COOKIE_SAME_SITE = "Lax"
 # CF_ACCESS_TEAM_DOMAIN = "https://xaostech.cloudflareaccess.com"
 # CF_ACCESS_AUD = "<your-application-aud-tag>"
 
-[[env.production.d1_databases]]
-binding = "DB"
-database_name = "api-db"
-database_id = "${D1_API_DB_ID}"
-
 [[env.production.kv_namespaces]]
 binding = "MESSAGES_KV"
 id = "${KV_MESSAGES_ID}"

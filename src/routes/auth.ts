@@ -144,20 +144,36 @@ authRouter.get('/github/callback', async (c: any) => {
     const db = c.env.DB;
     if (!db) return c.json({ error: 'DB not configured on api.xaostech.io' }, 501);
 
-    const existingRow = await db.prepare('SELECT id, role FROM users WHERE github_id = ?').bind(ghUser.id.toString()).first();
-    const existing = existingRow as { id?: string; role?: string } | undefined;
+    const existingRow = await db.prepare('SELECT id, username, email, avatar_url, role FROM users WHERE github_id = ?').bind(ghUser.id.toString()).first();
+    const existing = existingRow as { id?: string; username?: string; email?: string; avatar_url?: string; role?: string } | undefined;
     let userId = existing?.id;
     let userRole = existing?.role || 'user';
     let isNewUser = false;
+    let currentUsername = existing?.username;
+    let currentEmail = existing?.email;
+    let currentAvatarUrl = existing?.avatar_url;
 
     if (userId) {
-      await db.prepare('UPDATE users SET username = ?, email = ?, avatar_url = ?, last_login = datetime("now") WHERE id = ?')
-        .bind(ghUser.login || '', primaryEmail || '', ghUser.avatar_url || '', userId).run();
+      // Existing user: ONLY update github_* tracking columns and last_login
+      // PRESERVE their custom username and avatar - don't overwrite with GitHub values
+      await db.prepare(`
+        UPDATE users SET 
+          github_username = ?,
+          github_avatar_url = ?,
+          last_login = datetime("now")
+        WHERE id = ?
+      `).bind(ghUser.login || '', ghUser.avatar_url || '', userId).run();
     } else {
       userId = crypto.randomUUID();
       isNewUser = true;
-      await db.prepare('INSERT INTO users (id, github_id, username, email, avatar_url, role, created_at, last_login) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))')
-        .bind(userId, ghUser.id.toString(), ghUser.login || '', primaryEmail || '', ghUser.avatar_url || '', 'user').run();
+      // New user: set username/avatar from GitHub, also save to github_* columns for restore option
+      currentUsername = ghUser.login || '';
+      currentEmail = primaryEmail || '';
+      currentAvatarUrl = ghUser.avatar_url || '';
+      await db.prepare(`
+        INSERT INTO users (id, github_id, username, email, avatar_url, github_username, github_avatar_url, role, created_at, last_login) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))
+      `).bind(userId, ghUser.id.toString(), currentUsername, currentEmail, currentAvatarUrl, ghUser.login || '', ghUser.avatar_url || '', 'user').run();
     }
 
     const sessionKv = c.env.SESSION;
@@ -166,13 +182,13 @@ authRouter.get('/github/callback', async (c: any) => {
     const sessionId = crypto.randomUUID();
     const sessionTtl = 60 * 60 * 24 * 7; // 7 days
     // Store full user data in session for cross-worker access
-    // Note: use both 'id' and 'userId' for backwards compatibility
+    // Use the user's ACTUAL username/avatar from DB, not GitHub values (for existing users)
     const sessionData = {
       id: userId,
       userId,
-      username: ghUser.login || '',
-      email: primaryEmail || '',
-      avatar_url: ghUser.avatar_url || '',
+      username: currentUsername || ghUser.login || '',
+      email: currentEmail || primaryEmail || '',
+      avatar_url: currentAvatarUrl || ghUser.avatar_url || '',
       github_id: ghUser.id.toString(),
       role: userRole,
       isNewUser,
