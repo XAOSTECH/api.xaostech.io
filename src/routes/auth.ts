@@ -1,6 +1,40 @@
 import { Hono } from 'hono';
+import { z } from 'zod';
 
 export const authRouter = new Hono();
+
+// Validation schemas
+const RegisterSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).regex(/[A-Z]/, 'Password must contain uppercase').regex(/[0-9]/, 'Password must contain number'),
+  username: z.string().min(3).max(30).regex(/^[a-zA-Z0-9_-]+$/, 'Username must be alphanumeric'),
+});
+
+const LoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+// Password hashing using Web Crypto API
+async function hashPassword(password: string, salt?: string): Promise<{ hash: string; salt: string }> {
+  const encoder = new TextEncoder();
+  const useSalt = salt || crypto.randomUUID().replace(/-/g, '');
+  const data = encoder.encode(password + useSalt);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return { hash, salt: useSalt };
+}
+
+async function verifyPassword(password: string, storedHash: string, salt: string): Promise<boolean> {
+  const { hash } = await hashPassword(password, salt);
+  return hash === storedHash;
+}
+
+// Generate email verification token
+function generateVerificationToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // Helper to validate return_to URLs (must be same-site)
 function isValidReturnTo(url: string): boolean {
@@ -240,5 +274,282 @@ authRouter.get('/me', async (c: any) => {
   } catch (err: any) {
     console.error('Me endpoint error:', err);
     return c.json({ authenticated: false, error: 'Failed to fetch user' }, 500);
+  }
+});
+
+// ============ EMAIL/PASSWORD AUTH ============
+// Fallback for users without GitHub accounts
+
+// POST /register - Create account with email/password
+authRouter.post('/register', async (c: any) => {
+  try {
+    const body = await c.req.json();
+    const validated = RegisterSchema.parse(body);
+
+    const db = c.env.DB;
+    if (!db) return c.json({ error: 'Database not configured' }, 501);
+
+    // Check if email already exists
+    const existing = await db.prepare(
+      'SELECT id FROM users WHERE email = ?'
+    ).bind(validated.email.toLowerCase()).first();
+
+    if (existing) {
+      return c.json({ error: 'Email already registered' }, 409);
+    }
+
+    // Check if username is taken
+    const existingUsername = await db.prepare(
+      'SELECT id FROM users WHERE username = ?'
+    ).bind(validated.username).first();
+
+    if (existingUsername) {
+      return c.json({ error: 'Username already taken' }, 409);
+    }
+
+    // Hash password
+    const { hash, salt } = await hashPassword(validated.password);
+    const userId = crypto.randomUUID();
+    const verificationToken = generateVerificationToken();
+    const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
+
+    // Create user (email_verified = false)
+    await db.prepare(`
+      INSERT INTO users (id, username, email, password_hash, password_salt, email_verified, email_verification_token, role, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, 'user', ?, ?)
+    `).bind(userId, validated.username, validated.email.toLowerCase(), hash, salt, verificationToken, now, now).run();
+
+    // TODO: Send verification email via email queue
+    // For now, return the token for testing (remove in production!)
+    const verifyUrl = `https://api.xaostech.io/auth/verify-email?token=${verificationToken}`;
+
+    return c.json({
+      message: 'Account created. Please verify your email.',
+      userId,
+      // Remove in production - only for testing:
+      _debug_verify_url: verifyUrl,
+    }, 201);
+  } catch (err: any) {
+    if (err.name === 'ZodError') {
+      return c.json({ error: 'Validation failed', details: err.errors }, 400);
+    }
+    console.error('Registration error:', err);
+    return c.json({ error: 'Registration failed' }, 500);
+  }
+});
+
+// GET /verify-email - Verify email address
+authRouter.get('/verify-email', async (c: any) => {
+  const token = c.req.query('token');
+  if (!token) return c.json({ error: 'Token required' }, 400);
+
+  const db = c.env.DB;
+  if (!db) return c.json({ error: 'Database not configured' }, 501);
+
+  try {
+    // Find user by verification token
+    const user = await db.prepare(
+      'SELECT id, email_verified FROM users WHERE email_verification_token = ?'
+    ).bind(token).first() as { id: string; email_verified: number } | null;
+
+    if (!user) {
+      return c.json({ error: 'Invalid or expired token' }, 400);
+    }
+
+    if (user.email_verified) {
+      return c.redirect('https://account.xaostech.io/?verified=already');
+    }
+
+    // Mark email as verified
+    await db.prepare(`
+      UPDATE users SET email_verified = 1, email_verification_token = NULL, updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(user.id).run();
+
+    return c.redirect('https://account.xaostech.io/?verified=success');
+  } catch (err: any) {
+    console.error('Email verification error:', err);
+    return c.json({ error: 'Verification failed' }, 500);
+  }
+});
+
+// POST /login - Login with email/password
+authRouter.post('/login', async (c: any) => {
+  try {
+    const body = await c.req.json();
+    const validated = LoginSchema.parse(body);
+
+    const db = c.env.DB;
+    const sessionKv = c.env.SESSION;
+    if (!db) return c.json({ error: 'Database not configured' }, 501);
+    if (!sessionKv) return c.json({ error: 'Session storage not configured' }, 501);
+
+    // Find user by email
+    const user = await db.prepare(
+      'SELECT id, username, email, password_hash, password_salt, email_verified, role, avatar_url FROM users WHERE email = ?'
+    ).bind(validated.email.toLowerCase()).first() as {
+      id: string;
+      username: string;
+      email: string;
+      password_hash: string;
+      password_salt: string;
+      email_verified: number;
+      role: string;
+      avatar_url: string | null;
+    } | null;
+
+    if (!user) {
+      return c.json({ error: 'Invalid email or password' }, 401);
+    }
+
+    // Users registered via GitHub don't have a password
+    if (!user.password_hash || !user.password_salt) {
+      return c.json({ error: 'This account uses GitHub login. Please sign in with GitHub.' }, 400);
+    }
+
+    // Verify password
+    const validPassword = await verifyPassword(validated.password, user.password_hash, user.password_salt);
+    if (!validPassword) {
+      return c.json({ error: 'Invalid email or password' }, 401);
+    }
+
+    // Check email verification
+    if (!user.email_verified) {
+      return c.json({ error: 'Please verify your email address before logging in' }, 403);
+    }
+
+    // Create session
+    const sessionId = crypto.randomUUID();
+    const sessionTtl = parseInt(c.env.SESSION_TTL || '604800', 10); // 7 days
+    const expires = Date.now() + sessionTtl * 1000;
+
+    const sessionData = {
+      id: user.id,
+      userId: user.id,
+      username: user.username,
+      email: user.email,
+      avatar_url: user.avatar_url,
+      role: user.role || 'user',
+      expires,
+    };
+
+    await sessionKv.put(sessionId, JSON.stringify(sessionData), { expirationTtl: sessionTtl });
+
+    // Update last login
+    await db.prepare(
+      'UPDATE users SET last_login = datetime("now") WHERE id = ?'
+    ).bind(user.id).run();
+
+    // Set session cookie
+    const cookieDomain = c.env.COOKIE_DOMAIN || '.xaostech.io';
+    const sessionCookie = `session_id=${sessionId}; Domain=${cookieDomain}; Path=/; Max-Age=${sessionTtl}; HttpOnly; Secure; SameSite=Lax`;
+
+    return new Response(JSON.stringify({
+      message: 'Login successful',
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+      }
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Set-Cookie': sessionCookie,
+      }
+    });
+  } catch (err: any) {
+    if (err.name === 'ZodError') {
+      return c.json({ error: 'Validation failed', details: err.errors }, 400);
+    }
+    console.error('Login error:', err);
+    return c.json({ error: 'Login failed' }, 500);
+  }
+});
+
+// POST /forgot-password - Request password reset
+authRouter.post('/forgot-password', async (c: any) => {
+  try {
+    const { email } = await c.req.json();
+    if (!email) return c.json({ error: 'Email required' }, 400);
+
+    const db = c.env.DB;
+    if (!db) return c.json({ error: 'Database not configured' }, 501);
+
+    // Find user
+    const user = await db.prepare(
+      'SELECT id, password_hash FROM users WHERE email = ?'
+    ).bind(email.toLowerCase()).first() as { id: string; password_hash: string | null } | null;
+
+    // Always return success to prevent email enumeration
+    if (!user || !user.password_hash) {
+      return c.json({ message: 'If an account exists, a password reset link will be sent.' });
+    }
+
+    // Generate reset token
+    const resetToken = generateVerificationToken();
+    const resetExpires = new Date(Date.now() + 3600000).toISOString().replace('T', ' ').replace('Z', ''); // 1 hour
+
+    await db.prepare(`
+      UPDATE users SET password_reset_token = ?, password_reset_expires = ? WHERE id = ?
+    `).bind(resetToken, resetExpires, user.id).run();
+
+    // TODO: Send reset email via email queue
+    const resetUrl = `https://account.xaostech.io/reset-password?token=${resetToken}`;
+
+    return c.json({
+      message: 'If an account exists, a password reset link will be sent.',
+      // Remove in production:
+      _debug_reset_url: resetUrl,
+    });
+  } catch (err: any) {
+    console.error('Forgot password error:', err);
+    return c.json({ error: 'Request failed' }, 500);
+  }
+});
+
+// POST /reset-password - Reset password with token
+authRouter.post('/reset-password', async (c: any) => {
+  try {
+    const { token, password } = await c.req.json();
+    if (!token || !password) return c.json({ error: 'Token and password required' }, 400);
+
+    // Validate password strength
+    if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      return c.json({ error: 'Password must be 8+ characters with uppercase and number' }, 400);
+    }
+
+    const db = c.env.DB;
+    if (!db) return c.json({ error: 'Database not configured' }, 501);
+
+    // Find user by reset token
+    const user = await db.prepare(
+      'SELECT id, password_reset_expires FROM users WHERE password_reset_token = ?'
+    ).bind(token).first() as { id: string; password_reset_expires: string } | null;
+
+    if (!user) {
+      return c.json({ error: 'Invalid or expired reset token' }, 400);
+    }
+
+    // Check expiration
+    const expires = new Date(user.password_reset_expires.replace(' ', 'T') + 'Z');
+    if (expires < new Date()) {
+      return c.json({ error: 'Reset token has expired' }, 400);
+    }
+
+    // Hash new password
+    const { hash, salt } = await hashPassword(password);
+
+    // Update password and clear reset token
+    await db.prepare(`
+      UPDATE users SET password_hash = ?, password_salt = ?, password_reset_token = NULL, password_reset_expires = NULL, updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(hash, salt, user.id).run();
+
+    return c.json({ message: 'Password reset successfully. You can now log in.' });
+  } catch (err: any) {
+    console.error('Reset password error:', err);
+    return c.json({ error: 'Reset failed' }, 500);
   }
 });
