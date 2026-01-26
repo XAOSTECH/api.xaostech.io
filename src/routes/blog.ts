@@ -3,49 +3,56 @@ import { requireAuth } from '../middleware/auth';
 
 export const blogRouter = new Hono();
 
-// List posts
+// List posts - proxy to DATA worker
 blogRouter.get('/posts', async (c: any) => {
-  const db = c.env.DB;
-  if (!db) return c.json({ error: 'DB not configured' }, 501);
+  const dataService = c.env.DATA;
+  if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
 
   try {
-    const { results } = await db.prepare('SELECT id, slug, title, excerpt, author_id, created_at, published FROM posts WHERE published = 1 ORDER BY created_at DESC LIMIT 100').all();
-    return c.json({ posts: results });
+    const resp = await dataService.fetch('https://data.xaostech.io/blog/posts');
+    return resp;
   } catch (err) {
     return c.json({ error: 'Failed to fetch posts' }, 500);
   }
 });
 
-// Read post
+// Read post - proxy to DATA worker
 blogRouter.get('/posts/:id', async (c: any) => {
   const id = c.req.param('id');
-  const db = c.env.DB;
-  if (!db) return c.json({ error: 'DB not configured' }, 501);
+  const dataService = c.env.DATA;
+  if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
 
   try {
-    const row = await db.prepare('SELECT id, slug, title, content, author_id, created_at, published FROM posts WHERE id = ?').bind(id).first();
-    if (!row) return c.json({ error: 'Not found' }, 404);
-    return c.json({ post: row });
+    const resp = await dataService.fetch(`https://data.xaostech.io/blog/posts/${id}`);
+    return resp;
   } catch (err) {
     return c.json({ error: 'Failed to fetch post' }, 500);
   }
 });
 
-// Create post (requires auth)
+// Create post (requires auth) - proxy to DATA worker
 blogRouter.post('/posts', requireAuth, async (c: any) => {
   const auth = c.get('auth') as any;
-  const db = c.env.DB;
-  if (!db) return c.json({ error: 'DB not configured' }, 501);
+  const dataService = c.env.DATA;
+  if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
 
-  const { title, content, slug, published } = await c.req.json().catch(() => ({}));
+  const body = await c.req.json().catch(() => ({}));
+  const { title, content, slug, published } = body;
   if (!title || !content) return c.json({ error: 'title and content required' }, 400);
 
   try {
-    const id = crypto.randomUUID();
-    await db.prepare('INSERT INTO posts (id, slug, title, excerpt, content, author_id, created_at, published) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?)')
-      .bind(id, slug || null, title, (content || '').slice(0, 320), content, auth.userId, published ? 1 : 0).run();
-
-    return c.json({ success: true, id }, 201);
+    const resp = await dataService.fetch('https://data.xaostech.io/blog/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        content,
+        slug,
+        author_id: auth.userId,
+        status: published ? 'published' : 'draft',
+      }),
+    });
+    return resp;
   } catch (err) {
     console.error('Create post error', err);
     return c.json({ error: 'Failed to create post' }, 500);

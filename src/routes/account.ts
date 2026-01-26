@@ -35,24 +35,39 @@ function verifyHash(password: string, stored: string) {
   return hashPassword(password, salt).then(h => h === stored);
 }
 
-// Register a new user (email + username + password)
+// Register a new user (email + username + password) - uses DATA service
 accountRouter.post('/register', async (c: any) => {
-  const db = c.env.DB;
-  if (!db) return c.json({ error: 'DB not configured' }, 501);
+  const dataService = c.env.DATA;
+  if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
 
   const body = await c.req.json().catch(() => ({}));
   const { email, username, password } = body || {};
   if (!email || !username || !password) return c.json({ error: 'email, username and password required' }, 400);
 
   try {
-    const existing = await db.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
-    if (existing && (existing as any).id) return c.json({ error: 'User with that email already exists' }, 409);
+    // Check if user exists by email (need to add this route to data worker)
+    const checkResp = await dataService.fetch(`https://data.xaostech.io/users/email/${encodeURIComponent(email)}`);
+    const checkData = await checkResp.json() as { found?: boolean };
+    if (checkData.found) return c.json({ error: 'User with that email already exists' }, 409);
 
     const passwordHash = await hashPassword(password);
     const userId = crypto.randomUUID();
 
-    await db.prepare('INSERT INTO users (id, email, username, password_hash, created_at, last_login) VALUES (?, ?, ?, ?, datetime("now"), datetime("now"))')
-      .bind(userId, email, username, passwordHash).run();
+    const createResp = await dataService.fetch('https://data.xaostech.io/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: userId,
+        email,
+        username,
+        password_hash: passwordHash,
+      }),
+    });
+
+    if (!createResp.ok) {
+      const err = await createResp.json() as { error?: string };
+      return c.json({ error: err.error || 'Registration failed' }, 500);
+    }
 
     return c.json({ success: true, id: userId }, 201);
   } catch (err: any) {
@@ -63,18 +78,21 @@ accountRouter.post('/register', async (c: any) => {
 
 // Login with email + password -> create session and return session cookie
 accountRouter.post('/login', async (c: any) => {
-  const db = c.env.DB;
+  const dataService = c.env.DATA;
   const sessionKv = c.env.SESSION;
-  if (!db) return c.json({ error: 'DB not configured' }, 501);
+  if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
   if (!sessionKv) return c.json({ error: 'SESSION KV not configured' }, 501);
 
   const { email, password } = await c.req.json().catch(() => ({}));
   if (!email || !password) return c.json({ error: 'email and password required' }, 400);
 
   try {
-    const row = await db.prepare('SELECT id, password_hash FROM users WHERE email = ?').bind(email).first();
-    if (!row || !(row as any).id) return c.json({ error: 'Invalid credentials' }, 401);
-    const user = row as any;
+    // Fetch user by email from DATA worker
+    const userResp = await dataService.fetch(`https://data.xaostech.io/users/email/${encodeURIComponent(email)}`);
+    const userData = await userResp.json() as { found?: boolean; user?: any };
+    
+    if (!userData.found || !userData.user) return c.json({ error: 'Invalid credentials' }, 401);
+    const user = userData.user;
 
     const ok = await verifyHash(password, user.password_hash || '');
     if (!ok) return c.json({ error: 'Invalid credentials' }, 401);
@@ -82,7 +100,8 @@ accountRouter.post('/login', async (c: any) => {
     const sessionId = crypto.randomUUID();
     await sessionKv.put(sessionId, JSON.stringify({ userId: user.id }), { expirationTtl: 60 * 60 * 24 * 7 });
 
-    const sessionCookie = `session_id=${sessionId}; Path=/; Max-Age=${60 * 60 * 24 * 7}; HttpOnly; Secure; SameSite=Lax`;
+    const cookieDomain = c.env.COOKIE_DOMAIN || '.xaostech.io';
+    const sessionCookie = `session_id=${sessionId}; Domain=${cookieDomain}; Path=/; Max-Age=${60 * 60 * 24 * 7}; HttpOnly; Secure; SameSite=Lax`;
 
     return new Response(JSON.stringify({ success: true, id: user.id }), { status: 200, headers: { 'Set-Cookie': sessionCookie, 'Content-Type': 'application/json' } });
   } catch (err: any) {
@@ -105,9 +124,15 @@ accountRouter.post('/verify', async (c: any) => {
     if (!raw) return c.json({ error: 'invalid_session' }, 401);
     const parsed = JSON.parse(raw);
     const userId = parsed.userId;
-    // Optionally fetch user info
-    const row = await c.env.DB.prepare('SELECT id, email, username, is_admin FROM users WHERE id = ?').bind(userId).first();
-    const user = row ? (row as any) : null;
+    
+    // Fetch user info from DATA worker
+    const dataService = c.env.DATA;
+    if (!dataService) return c.json({ userId, sessionId: token, isAdmin: false });
+    
+    const userResp = await dataService.fetch(`https://data.xaostech.io/users/${userId}`);
+    const userData = await userResp.json() as { user?: any };
+    const user = userData.user;
+    
     return c.json({ userId, sessionId: token, isAdmin: user?.is_admin || false });
   }
 
@@ -130,8 +155,14 @@ accountRouter.get('/me', async (c: any) => {
   if (!raw) return c.json({ error: 'Invalid session' }, 401);
   const obj = JSON.parse(raw);
   const userId = obj.userId;
-  const row = await c.env.DB.prepare('SELECT id, username, email, avatar_url, is_admin, created_at FROM users WHERE id = ?').bind(userId).first();
-  if (!row) return c.json({ error: 'User not found' }, 404);
-  const user = row as any;
-  return c.json({ user });
+  
+  // Fetch user from DATA worker
+  const dataService = c.env.DATA;
+  if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
+  
+  const userResp = await dataService.fetch(`https://data.xaostech.io/users/${userId}`);
+  const userData = await userResp.json() as { user?: any; error?: string };
+  
+  if (!userData.user) return c.json({ error: 'User not found' }, 404);
+  return c.json({ user: userData.user });
 });

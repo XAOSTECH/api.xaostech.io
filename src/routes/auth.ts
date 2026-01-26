@@ -132,11 +132,19 @@ authRouter.get('/github/callback', async (c: any) => {
       primaryEmail = primary ? primary.email : (emails && emails[0] && emails[0].email);
     }
 
-    const db = c.env.DB;
-    if (!db) return c.json({ error: 'DB not configured on api.xaostech.io' }, 501);
+    // Use DATA service binding for user database operations (centralized in data worker)
+    const dataService = c.env.DATA;
+    if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
 
-    const existingRow = await db.prepare('SELECT id, username, email, avatar_url, role FROM users WHERE github_id = ?').bind(ghUser.id.toString()).first();
-    const existing = existingRow as { id?: string; username?: string; email?: string; avatar_url?: string; role?: string } | undefined;
+    // Look up existing user by GitHub ID via data worker
+    const lookupResp = await dataService.fetch(`https://data.xaostech.io/users/github/${ghUser.id.toString()}`);
+    const lookupData = await lookupResp.json() as { found?: boolean; user?: any; error?: string };
+    
+    if (lookupData.error) {
+      return c.json({ error: 'User lookup failed', details: lookupData.error }, 502);
+    }
+
+    const existing = lookupData.found ? lookupData.user : null;
     let userId = existing?.id;
     let userRole = existing?.role || 'user';
     let isNewUser = false;
@@ -147,13 +155,15 @@ authRouter.get('/github/callback', async (c: any) => {
     if (userId) {
       // Existing user: ONLY update github_* tracking columns and last_login
       // PRESERVE their custom username and avatar - don't overwrite with GitHub values
-      await db.prepare(`
-        UPDATE users SET 
-          github_username = ?,
-          github_avatar_url = ?,
-          last_login = datetime("now")
-        WHERE id = ?
-      `).bind(ghUser.login || '', ghUser.avatar_url || '', userId).run();
+      await dataService.fetch(`https://data.xaostech.io/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          github_username: ghUser.login || '',
+          github_avatar_url: ghUser.avatar_url || '',
+          last_login: true,
+        }),
+      });
     } else {
       userId = crypto.randomUUID();
       isNewUser = true;
@@ -161,10 +171,26 @@ authRouter.get('/github/callback', async (c: any) => {
       currentUsername = ghUser.login || '';
       currentEmail = primaryEmail || '';
       currentAvatarUrl = ghUser.avatar_url || '';
-      await db.prepare(`
-        INSERT INTO users (id, github_id, username, email, avatar_url, github_username, github_avatar_url, role, created_at, last_login) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))
-      `).bind(userId, ghUser.id.toString(), currentUsername, currentEmail, currentAvatarUrl, ghUser.login || '', ghUser.avatar_url || '', 'user').run();
+      
+      const createResp = await dataService.fetch('https://data.xaostech.io/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: userId,
+          github_id: ghUser.id.toString(),
+          username: currentUsername,
+          email: currentEmail,
+          avatar_url: currentAvatarUrl,
+          github_username: ghUser.login || '',
+          github_avatar_url: ghUser.avatar_url || '',
+          role: 'user',
+        }),
+      });
+      
+      if (!createResp.ok) {
+        const err = await createResp.json() as { error?: string };
+        return c.json({ error: 'Failed to create user', details: err.error }, 502);
+      }
     }
 
     const sessionKv = c.env.SESSION;
