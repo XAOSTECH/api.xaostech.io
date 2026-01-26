@@ -84,7 +84,7 @@ authRouter.get('/github/login', (c: any) => {
   authUrl.searchParams.set('redirect_uri', redirectUri);
   authUrl.searchParams.set('scope', 'read:user user:email');
   authUrl.searchParams.set('state', state);
-  
+
   // If login hint provided, pass to GitHub to pre-fill/suggest the account
   if (loginHint) {
     authUrl.searchParams.set('login', loginHint);
