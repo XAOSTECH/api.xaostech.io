@@ -139,7 +139,7 @@ authRouter.get('/github/callback', async (c: any) => {
     // Look up existing user by GitHub ID via data worker
     const lookupResp = await dataService.fetch(`https://data.xaostech.io/users/github/${ghUser.id.toString()}`);
     const lookupData = await lookupResp.json() as { found?: boolean; user?: any; error?: string };
-    
+
     if (lookupData.error) {
       return c.json({ error: 'User lookup failed', details: lookupData.error }, 502);
     }
@@ -171,7 +171,7 @@ authRouter.get('/github/callback', async (c: any) => {
       currentUsername = ghUser.login || '';
       currentEmail = primaryEmail || '';
       currentAvatarUrl = ghUser.avatar_url || '';
-      
+
       const createResp = await dataService.fetch('https://data.xaostech.io/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -186,7 +186,7 @@ authRouter.get('/github/callback', async (c: any) => {
           role: 'user',
         }),
       });
-      
+
       if (!createResp.ok) {
         const err = await createResp.json() as { error?: string };
         return c.json({ error: 'Failed to create user', details: err.error }, 502);

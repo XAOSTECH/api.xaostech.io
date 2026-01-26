@@ -90,7 +90,7 @@ accountRouter.post('/login', async (c: any) => {
     // Fetch user by email from DATA worker
     const userResp = await dataService.fetch(`https://data.xaostech.io/users/email/${encodeURIComponent(email)}`);
     const userData = await userResp.json() as { found?: boolean; user?: any };
-    
+
     if (!userData.found || !userData.user) return c.json({ error: 'Invalid credentials' }, 401);
     const user = userData.user;
 
@@ -124,15 +124,15 @@ accountRouter.post('/verify', async (c: any) => {
     if (!raw) return c.json({ error: 'invalid_session' }, 401);
     const parsed = JSON.parse(raw);
     const userId = parsed.userId;
-    
+
     // Fetch user info from DATA worker
     const dataService = c.env.DATA;
     if (!dataService) return c.json({ userId, sessionId: token, isAdmin: false });
-    
+
     const userResp = await dataService.fetch(`https://data.xaostech.io/users/${userId}`);
     const userData = await userResp.json() as { user?: any };
     const user = userData.user;
-    
+
     return c.json({ userId, sessionId: token, isAdmin: user?.is_admin || false });
   }
 
@@ -155,14 +155,14 @@ accountRouter.get('/me', async (c: any) => {
   if (!raw) return c.json({ error: 'Invalid session' }, 401);
   const obj = JSON.parse(raw);
   const userId = obj.userId;
-  
+
   // Fetch user from DATA worker
   const dataService = c.env.DATA;
   if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
-  
+
   const userResp = await dataService.fetch(`https://data.xaostech.io/users/${userId}`);
   const userData = await userResp.json() as { user?: any; error?: string };
-  
+
   if (!userData.user) return c.json({ error: 'User not found' }, 404);
   return c.json({ user: userData.user });
 });

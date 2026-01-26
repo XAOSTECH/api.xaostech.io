@@ -21,99 +21,87 @@ export const chatRouter = new Hono();
 // Health check (no auth required)
 chatRouter.get('/health', (c) => c.json({ service: 'chat', status: 'ok' }));
 
-// Public: List messages (requires user session)
+// Public: List messages (requires user session) - proxy to DATA service
 chatRouter.get('/messages', requireAuth, async (c) => {
   const auth = getAuth(c);
-  const db = c.env.DB;
+  const dataService = (c.env as any).DATA;
+  if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
 
   try {
-    const limit = parseInt(c.query('limit') || '50');
-    const offset = parseInt(c.query('offset') || '0');
-
-    const { results } = await db
-      .prepare('SELECT * FROM messages WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
-      .bind(auth.userId, limit, offset)
-      .all();
-
-    return c.json({
-      messages: results,
-      total: results.length,
-      userId: auth.userId,
-    });
+    const limit = c.req.query('limit') || '50';
+    const offset = c.req.query('offset') || '0';
+    const resp = await dataService.fetch(`https://data.xaostech.io/chat/messages?user_id=${auth.userId}&limit=${limit}&offset=${offset}`);
+    return resp;
   } catch (err) {
     return c.json({ error: 'Failed to fetch messages' }, 500);
   }
 });
 
-// Public: Send message
+// Public: Send message - proxy to DATA service
 chatRouter.post('/messages', requireAuth, async (c) => {
   const auth = getAuth(c);
-  const db = c.env.DB;
-  const { conversationId, content } = await c.req.json();
+  const dataService = (c.env as any).DATA;
+  if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
+
+  const body = await c.req.json();
+  const { conversationId, content } = body;
 
   if (!conversationId || !content) {
     return c.json({ error: 'conversationId and content required' }, 400);
   }
 
   try {
-    const result = await db
-      .prepare(
-        'INSERT INTO messages (conversation_id, user_id, content, created_at) VALUES (?, ?, ?, datetime("now")) RETURNING id, created_at'
-      )
-      .bind(conversationId, auth.userId, content)
-      .first();
-
-    return c.json(result, 201);
+    const resp = await dataService.fetch('https://data.xaostech.io/chat/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_id: conversationId, user_id: auth.userId, content }),
+    });
+    return resp;
   } catch (err) {
     return c.json({ error: 'Failed to send message' }, 500);
   }
 });
 
-// Admin: Moderate messages
+// Admin: Moderate messages - proxy to DATA service
 chatRouter.post('/admin/moderation', requireAuth, requireAdmin, async (c) => {
   const auth = getAuth(c);
+  const dataService = (c.env as any).DATA;
+  if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
+
   const { messageId, action, reason } = await c.req.json();
 
   if (!messageId || !action) {
     return c.json({ error: 'messageId and action required' }, 400);
   }
 
-  // Log moderation action
   console.log(`[MODERATION] Admin ${auth.userId} performed ${action} on message ${messageId}: ${reason}`);
 
   try {
-    if (action === 'delete') {
-      await c.env.DB
-        .prepare('UPDATE messages SET deleted_at = datetime("now"), deleted_by = ? WHERE id = ?')
-        .bind(auth.userId, messageId)
-        .run();
-    } else if (action === 'flag') {
-      await c.env.DB
-        .prepare('UPDATE messages SET flagged = 1, flagged_by = ?, flag_reason = ? WHERE id = ?')
-        .bind(auth.userId, reason, messageId)
-        .run();
-    }
-
-    return c.json({ success: true, action, messageId });
+    const resp = await dataService.fetch('https://data.xaostech.io/chat/moderation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId, action, reason, adminId: auth.userId }),
+    });
+    return resp;
   } catch (err) {
     return c.json({ error: 'Failed to moderate message' }, 500);
   }
 });
 
-// Admin: Delete conversation
+// Admin: Delete conversation - proxy to DATA service
 chatRouter.delete('/admin/conversations/:id', requireAuth, requireAdmin, async (c) => {
   const auth = getAuth(c);
+  const dataService = (c.env as any).DATA;
+  if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
+
   const conversationId = c.req.param('id');
 
   try {
-    await c.env.DB
-      .prepare('DELETE FROM conversations WHERE id = ?')
-      .bind(conversationId)
-      .run();
-
+    const resp = await dataService.fetch(`https://data.xaostech.io/chat/rooms/${conversationId}`, {
+      method: 'DELETE',
+    });
     console.log(`[ADMIN] Admin ${auth.userId} deleted conversation ${conversationId}`);
-
-    return c.json({ success: true });
+    return resp;
   } catch (err) {
     return c.json({ error: 'Failed to delete conversation' }, 500);
   }
