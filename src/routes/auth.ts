@@ -64,6 +64,9 @@ authRouter.get('/github/login', (c: any) => {
   const returnTo = c.req.query('return_to') || 'https://account.xaostech.io';
   const safeReturnTo = isValidReturnTo(returnTo) ? returnTo : 'https://account.xaostech.io';
 
+  // Optional login hint - suggest a GitHub username to pre-fill
+  const loginHint = c.req.query('login') || '';
+
   const state = crypto.randomUUID();
 
   // IMPORTANT: redirect_uri MUST always be the canonical account.xaostech.io callback
@@ -81,6 +84,11 @@ authRouter.get('/github/login', (c: any) => {
   authUrl.searchParams.set('redirect_uri', redirectUri);
   authUrl.searchParams.set('scope', 'read:user user:email');
   authUrl.searchParams.set('state', state);
+  
+  // If login hint provided, pass to GitHub to pre-fill/suggest the account
+  if (loginHint) {
+    authUrl.searchParams.set('login', loginHint);
+  }
 
   return new Response(null, {
     status: 302,
