@@ -48,6 +48,13 @@ function isValidReturnTo(url: string): boolean {
   }
 }
 
+// Redirect /github to /github/login for convenience
+authRouter.get('/github', (c: any) => {
+  const returnTo = c.req.query('return_to') || '';
+  const redirectUrl = returnTo ? `/auth/github/login?return_to=${encodeURIComponent(returnTo)}` : '/auth/github/login';
+  return c.redirect(redirectUrl);
+});
+
 // GitHub OAuth
 authRouter.get('/github/login', (c: any) => {
   const clientId = c.env.GITHUB_OAUTH_CLIENT_ID;
