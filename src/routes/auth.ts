@@ -66,19 +66,9 @@ authRouter.get('/github/login', (c: any) => {
 
   const state = crypto.randomUUID();
 
-  // Build redirect_uri from forwarded headers (when proxied) or request URL (direct)
-  // X-Forwarded-Host tells us the original host (e.g., account.xaostech.io)
-  const forwardedHost = c.req.header('X-Forwarded-Host');
-  const forwardedProto = c.req.header('X-Forwarded-Proto') || 'https';
-
-  let redirectUri: string;
-  if (forwardedHost) {
-    // Request came through proxy - use original host with /api prefix
-    redirectUri = `${forwardedProto}://${forwardedHost}/api/auth/github/callback`;
-  } else {
-    // Direct request to api.xaostech.io
-    redirectUri = new URL('/auth/github/callback', c.req.url).toString();
-  }
+  // IMPORTANT: redirect_uri MUST always be the canonical account.xaostech.io callback
+  // This is what's registered with GitHub OAuth - any other URL will fail
+  const redirectUri = 'https://account.xaostech.io/api/auth/github/callback';
 
   // State cookie for CSRF protection - must be Lax for OAuth redirect to work
   // Also store return_to in state cookie
@@ -116,15 +106,9 @@ authRouter.get('/github/callback', async (c: any) => {
   const cookieState = cookieMatch ? cookieMatch[1] : null;
   if (!cookieState || cookieState !== state) return c.json({ error: 'Invalid state (possible CSRF)' }, 400);
 
-  // Reconstruct redirect_uri the same way login did (must match for token exchange)
-  const forwardedHost = c.req.header('X-Forwarded-Host');
-  const forwardedProto = c.req.header('X-Forwarded-Proto') || 'https';
-  let redirectUri: string;
-  if (forwardedHost) {
-    redirectUri = `${forwardedProto}://${forwardedHost}/api/auth/github/callback`;
-  } else {
-    redirectUri = new URL('/auth/github/callback', c.req.url).toString();
-  }
+  // IMPORTANT: redirect_uri MUST match exactly what was sent in login request
+  // This is the canonical callback registered with GitHub OAuth
+  const redirectUri = 'https://account.xaostech.io/api/auth/github/callback';
 
   try {
     const tokenResp = await fetch('https://github.com/login/oauth/access_token', {
