@@ -151,3 +151,90 @@ chatRouter.get('/rooms/random', async (c: any) => {
   const messages = messagesRaw ? JSON.parse(messagesRaw) : [];
   return c.json(messages);
 });
+
+// Get messages for a specific room - used by chat.js
+chatRouter.get('/rooms/:roomId', async (c: any) => {
+  const roomId = c.req.param('roomId');
+  const dataService = (c.env as any).DATA;
+  
+  // Try DATA service first (D1 database)
+  if (dataService) {
+    try {
+      const resp = await dataService.fetch(`https://data.xaostech.io/chat/rooms/${roomId}/messages`);
+      if (resp.ok) return resp;
+    } catch (err) {
+      console.warn('[chat] DATA service fetch failed, falling back to KV:', err);
+    }
+  }
+
+  // Fallback to KV
+  const kv = (c.env as any).MESSAGES_KV;
+  if (!kv) return c.json({ error: 'No storage configured' }, 501);
+
+  const messagesRaw = await kv.get(`room:${roomId}:messages`);
+  const messages = messagesRaw ? JSON.parse(messagesRaw) : [];
+  return c.json(messages);
+});
+
+// Post message to a specific room - used by chat.js
+chatRouter.post('/rooms/:roomId/post', async (c: any) => {
+  const roomId = c.req.param('roomId');
+  const body = await c.req.json();
+  const { userId, username, content } = body;
+
+  if (!content) {
+    return c.json({ error: 'content required' }, 400);
+  }
+
+  const dataService = (c.env as any).DATA;
+
+  // Try DATA service first (D1 database)
+  if (dataService) {
+    try {
+      const resp = await dataService.fetch('https://data.xaostech.io/chat/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: roomId,
+          user_id: userId || 'anonymous',
+          username: username || 'Anonymous',
+          content,
+        }),
+      });
+      if (resp.ok) return resp;
+    } catch (err) {
+      console.warn('[chat] DATA service post failed, falling back to KV:', err);
+    }
+  }
+
+  // Fallback to KV storage
+  const kv = (c.env as any).MESSAGES_KV;
+  if (!kv) return c.json({ error: 'No storage configured' }, 501);
+
+  const messagesRaw = await kv.get(`room:${roomId}:messages`);
+  const messages = messagesRaw ? JSON.parse(messagesRaw) : [];
+  
+  const newMessage = {
+    id: crypto.randomUUID(),
+    room_id: roomId,
+    user_id: userId || 'anonymous',
+    username: username || 'Anonymous',
+    content,
+    timestamp: new Date().toISOString(),
+  };
+  
+  messages.push(newMessage);
+  // Keep last 100 messages per room
+  const trimmed = messages.slice(-100);
+  await kv.put(`room:${roomId}:messages`, JSON.stringify(trimmed));
+
+  // Ensure room exists in index
+  const roomsRaw = await kv.get('rooms:index');
+  const rooms = roomsRaw ? JSON.parse(roomsRaw) : [];
+  if (!rooms.includes(roomId)) {
+    rooms.push(roomId);
+    await kv.put('rooms:index', JSON.stringify(rooms));
+  }
+
+  return c.json({ success: true, message: newMessage });
+});
