@@ -156,7 +156,7 @@ chatRouter.get('/rooms/random', async (c: any) => {
 chatRouter.get('/rooms/:roomId', async (c: any) => {
   const roomId = c.req.param('roomId');
   const dataService = (c.env as any).DATA;
-  
+
   // Try DATA service first (D1 database)
   if (dataService) {
     try {
@@ -213,7 +213,7 @@ chatRouter.post('/rooms/:roomId/post', async (c: any) => {
 
   const messagesRaw = await kv.get(`room:${roomId}:messages`);
   const messages = messagesRaw ? JSON.parse(messagesRaw) : [];
-  
+
   const newMessage = {
     id: crypto.randomUUID(),
     room_id: roomId,
@@ -222,7 +222,7 @@ chatRouter.post('/rooms/:roomId/post', async (c: any) => {
     content,
     timestamp: new Date().toISOString(),
   };
-  
+
   messages.push(newMessage);
   // Keep last 100 messages per room
   const trimmed = messages.slice(-100);
