@@ -139,7 +139,7 @@ app.get('/', (c: any) => {
   return c.html(html);
 });
 
-app.get('/health', (c: any) => c.json({ 
+app.get('/health', (c: any) => c.json({
   service: 'api.xaostech.io',
   status: 'ok',
   timestamp: new Date().toISOString(),
@@ -340,33 +340,9 @@ app.delete('/chat/admin/conversations/:id', requireAuth, requireAdmin, async (c:
   }
 });
 
-// Blog proxy (example structure)
-app.get('/blog/posts', requireAuth, async (c: any) => {
-  try {
-    const db = c.env.DB;
-    const { results } = await db.prepare('SELECT * FROM blog_posts LIMIT 50').all();
-    return c.json({ posts: results });
-  } catch (err) {
-    return c.json({ error: 'Failed to fetch blog posts' }, 500);
-  }
-});
-
-app.post('/blog/posts', requireAuth, requireAdmin, async (c: any) => {
-  const { title, content, tags } = await c.req.json();
-  if (!title || !content) {
-    return c.json({ error: 'title and content required' }, 400);
-  }
-  try {
-    const db = c.env.DB;
-    const result = await db
-      .prepare('INSERT INTO blog_posts (title, content, tags, created_at) VALUES (?, ?, ?, datetime("now")) RETURNING id')
-      .bind(title, content, JSON.stringify(tags || []))
-      .first();
-    return c.json(result, 201);
-  } catch (err) {
-    return c.json({ error: 'Failed to create post' }, 500);
-  }
-});
+// NOTE: Blog routes are handled by blogRouter at /blog - see routes/blog.ts
+// The blogRouter uses DATA service binding to proxy to data.xaostech.io
+// DO NOT add duplicate /blog/* routes here
 
 // Data access helpers moved to lib so api-only logic stays in API worker
 import { getDataAccessCredentials, getDataFetchHeaders, ensureDataAccessOrReject } from './lib/data-proxy';
@@ -376,7 +352,7 @@ app.get('/data/analytics', requireAuth, requireAdmin, async (c: any) => {
   const maybeReject = ensureDataAccessOrReject(c);
   if (maybeReject) return maybeReject;
 
-  return c.json({ 
+  return c.json({
     message: 'Analytics endpoint - proxies to data.xaostech.io',
     availableMetrics: ['users', 'requests', 'errors', 'latency']
   });
@@ -433,7 +409,7 @@ app.post('/data/blog-media/upload', async (c: any) => {
 
 app.get('/data/blog-media/:key', async (c: any) => {
   const key = c.req.param('key');
-  
+
   try {
     // Enforce DATA_ACCESS token and use helper headers
     const maybeReject = ensureDataAccessOrReject(c);
@@ -472,7 +448,7 @@ app.get('/data/blog-media/:key', async (c: any) => {
     // Merge global security headers
     const secBlog = getSecurityHeaders();
     for (const k in secBlog) headers.set(k, secBlog[k]);
-    
+
     return new Response(blob, {
       status: 200,
       headers
@@ -512,7 +488,7 @@ app.get('/favicon.ico', async (c: any) => {
       try {
         const id = c.env?.DATA_ACCESS_CLIENT_ID;
         const secret = c.env?.DATA_ACCESS_CLIENT_SECRET;
-        const explicitExtra: Record<string,string> = {};
+        const explicitExtra: Record<string, string> = {};
         if (id && secret) {
           explicitExtra['CF-Access-Client-Id'] = id;
           explicitExtra['CF-Access-Client-Secret'] = secret;
@@ -528,7 +504,7 @@ app.get('/favicon.ico', async (c: any) => {
     if (!response.ok) {
       return c.notFound();
     }
-    
+
     const contentType = response.headers.get('content-type') || '';
     if (response.status === 200 && contentType.includes('text/html')) {
       const bodyText = await response.text();
@@ -543,7 +519,7 @@ app.get('/favicon.ico', async (c: any) => {
     const headers = new Headers({
       'Content-Type': 'image/png',
       'Cache-Control': 'public, max-age=604800', // 7 days
-      
+
     });
     // Merge security headers
     const secFav = getSecurityHeaders();
@@ -589,14 +565,14 @@ app.get('/favicon.ico', async (c: any) => {
 // });
 
 // === ERROR HANDLING ===
-app.notFound((c: any) => c.json({ 
+app.notFound((c: any) => c.json({
   error: 'Not found',
   path: c.req.path,
   method: c.req.method,
 }, 404));
 
 // === ERROR HANDLING ===
-app.notFound((c: any) => c.json({ 
+app.notFound((c: any) => c.json({
   error: 'Not found',
   path: c.req.path,
   method: c.req.method,
@@ -604,7 +580,7 @@ app.notFound((c: any) => c.json({
 
 app.onError((err: any, c: any) => {
   console.error('API Error:', err);
-  return c.json({ 
+  return c.json({
     error: 'Internal server error',
     message: err.message,
   }, 500);
