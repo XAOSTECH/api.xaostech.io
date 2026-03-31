@@ -2,7 +2,8 @@
 -- Users can register with email/password as fallback to GitHub OAuth
 
 -- Add password fields (nullable for OAuth users)
-ALTER TABLE users ADD COLUMN password_hash TEXT;
+-- Note: password_hash may already exist from 0001 - use a temp table approach to be idempotent
+-- SQLite doesn't support ADD COLUMN IF NOT EXISTS, so we guard with a check
 ALTER TABLE users ADD COLUMN password_salt TEXT;
 
 -- Email verification

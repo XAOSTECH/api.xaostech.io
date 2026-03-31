@@ -254,6 +254,7 @@ app.post('/chat/admin/moderation', requireAuth, requireAdmin, async (c: any) => 
   }
 
   console.log(`[MODERATION] Admin ${auth.userId} performed ${action} on message ${messageId}: ${reason}`);
+  return c.json({ success: true, action, messageId });
 });
 
 // Chat AI, rooms and related endpoints are handled by the chat router mounted at /chat
