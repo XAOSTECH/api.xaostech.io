@@ -6,6 +6,7 @@ import { loggingMiddleware } from './middleware/logging';
 import { chatRouter } from './routes/chat';
 import { authRouter } from './routes/auth';
 import { accountRouter } from './routes/account';
+import { accountFeaturesRouter } from './routes/account-features';
 import { blogRouter } from './routes/blog';
 import { dataRouter } from './routes/data';
 
@@ -149,6 +150,7 @@ app.get('/health', (c: any) => c.json({
 app.route('/chat', chatRouter);
 app.route('/auth', authRouter as any);
 app.route('/account', accountRouter as any);
+app.route('/account', accountFeaturesRouter as any);
 app.route('/blog', blogRouter as any);
 app.route('/data', dataRouter as any);
 
