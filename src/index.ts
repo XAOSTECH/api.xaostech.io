@@ -9,6 +9,7 @@ import { accountRouter } from './routes/account';
 import { accountFeaturesRouter } from './routes/account-features';
 import { blogRouter } from './routes/blog';
 import { dataRouter } from './routes/data';
+import { musicRouter } from './routes/music';
 
 import { getSecurityHeaders, applySecurityHeaders } from '../shared/types/security';
 
@@ -153,6 +154,7 @@ app.route('/account', accountRouter as any);
 app.route('/account', accountFeaturesRouter as any);
 app.route('/blog', blogRouter as any);
 app.route('/data', dataRouter as any);
+app.route('/music', musicRouter as any);
 
 // Note: /data/assets/:filename is handled by dataRouter via routes/data.ts
 
