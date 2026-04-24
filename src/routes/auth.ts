@@ -201,7 +201,7 @@ authRouter.get('/github/callback', async (c: any) => {
       }
     }
 
-    const sessionKv = c.env.SESSION;
+    const sessionKv = c.env.SESSIONS_KV;
     if (!sessionKv) return c.json({ error: 'SESSION KV not configured' }, 501);
 
     const sessionId = crypto.randomUUID();
@@ -250,7 +250,7 @@ authRouter.get('/github/callback', async (c: any) => {
 
 authRouter.post('/logout', async (c: any) => {
   try {
-    const sessionKv = c.env.SESSION;
+    const sessionKv = c.env.SESSIONS_KV;
     if (sessionKv && c.req.header('Cookie')) {
       const m = c.req.header('Cookie')!.match(/session_id=([^;]+)/);
       const sid = m ? m[1] : null;
@@ -276,7 +276,7 @@ authRouter.get('/me', async (c: any) => {
   }
 
   try {
-    const sessionKv = c.env.SESSION;
+    const sessionKv = c.env.SESSIONS_KV;
     if (!sessionKv) {
       return c.json({ authenticated: false, error: 'SESSION KV not configured' }, 500);
     }
@@ -421,7 +421,7 @@ authRouter.post('/login', async (c: any) => {
     const validated = LoginSchema.parse(body);
 
     const db = c.env.DB;
-    const sessionKv = c.env.SESSION;
+    const sessionKv = c.env.SESSIONS_KV;
     if (!db) return c.json({ error: 'Database not configured' }, 501);
     if (!sessionKv) return c.json({ error: 'Session storage not configured' }, 501);
 

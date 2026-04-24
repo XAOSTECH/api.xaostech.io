@@ -21,7 +21,7 @@ async function resolveUser(c: any): Promise<{ userId: string } | Response> {
   const sid = m ? m[1] : (c.req.header('Authorization')?.replace('Bearer ', '') || c.req.query('session_id'));
   if (!sid) return c.json({ error: 'Unauthorized' }, 401);
 
-  const kv = c.env.SESSION;
+  const kv = c.env.SESSIONS_KV;
   if (!kv) return c.json({ error: 'SESSION KV not configured' }, 501);
 
   const raw = await kv.get(sid);

@@ -30,7 +30,7 @@ binding = "MESSAGES_KV"
 id = "${KV_MESSAGES_ID}"
 
 [[env.production.kv_namespaces]]
-binding = "SESSION"
+binding = "SESSIONS_KV"
 id = "${KV_SESSIONS_ID}"
 
 [env.production.ai]

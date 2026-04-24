@@ -79,7 +79,7 @@ accountRouter.post('/register', async (c: any) => {
 // Login with email + password -> create session and return session cookie
 accountRouter.post('/login', async (c: any) => {
   const dataService = c.env.DATA;
-  const sessionKv = c.env.SESSION;
+  const sessionKv = c.env.SESSIONS_KV;
   if (!dataService) return c.json({ error: 'DATA service not configured' }, 501);
   if (!sessionKv) return c.json({ error: 'SESSION KV not configured' }, 501);
 
@@ -117,7 +117,7 @@ accountRouter.post('/verify', async (c: any) => {
   if (!token) return c.json({ error: 'token required' }, 400);
 
   if (tokenType === 'session' || !tokenType) {
-    const kv = c.env.SESSION;
+    const kv = c.env.SESSIONS_KV;
     if (!kv) return c.json({ error: 'SESSION KV not configured' }, 501);
 
     const raw = await kv.get(token);
@@ -145,7 +145,7 @@ accountRouter.get('/me', async (c: any) => {
   const cookie = c.req.header('Cookie') || '';
   const m = cookie.match(/session_id=([^;]+)/);
   const sid = m ? m[1] : null;
-  const sessionKv = c.env.SESSION;
+  const sessionKv = c.env.SESSIONS_KV;
   if (!sessionKv) return c.json({ error: 'SESSION KV not configured' }, 501);
 
   const token = sid || c.req.query('session_id') || c.req.header('Authorization')?.replace('Bearer ', '');
